@@ -25,10 +25,17 @@ import './flightsurety.css';
                 display('Oracles', 'Trigger oracles', [ { label: 'Fetch Flight Status', error: error, value: result.flight + ' ' + result.timestamp} ]);
             });
         })
+
+        DOM.elid('buy-insurance').addEventListener('click', () => {
+            let flight = DOM.elid('flight-number').value;
+            let amount = DOM.elid('insurance-amount').value;
+            // Write transaction
+            contract.buyInsurance(flight, amount, (error, result) => {
+                display('Insurance', 'Buy insurance', [ { label: 'Buy Insurance', error: error, value: result} ]);
+            });
+        })
     
     });
-    
-
 })();
 
 

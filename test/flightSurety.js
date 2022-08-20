@@ -1,12 +1,13 @@
 
 const { debug } = require('webpack');
 var Test = require('../config/testConfig.js');
-//var BigNumber = require('bignumber.js');
+var BigNumber = require('bignumber.js');
 
 contract('Flight Surety Tests', async (accounts) => {
 
-	const flightName = 'ND1309'; // Course number
-	const timestamp = Math.floor(Date.now() / 1000);
+	const flight1 = 'ND1309'; // Course number
+	const flight2 = 'EW2713'; // Course number
+	const timestamp = Math.floor(Date.now() / 1000 + 3600);
 	
 
 	var config;
@@ -66,7 +67,7 @@ contract('Flight Surety Tests', async (accounts) => {
 		let reverted = false;
 		try 
 		{
-			await config.flightSuretyApp.registerAirline(accounts[4], "AirlineX");
+			await config.flightSuretyApp.registerAirline(accounts[4]);
 		}
 		catch(e) {
 			reverted = true;
@@ -83,125 +84,210 @@ contract('Flight Surety Tests', async (accounts) => {
 		const firstAirline = accounts[0];
 
 		// ACT
-		let result = await config.flightSuretyApp.isRegisteredAirline(firstAirline);
+		let result = await config.flightSuretyApp.isAirlineRegistered.call(firstAirline);
 		//result &= await config.flightSuretyApp.hasSubmittedFunding(firstAirline);
 
 		// ASSERT
 		assert.equal(result, true, "First airline not registered");
 	});
 
-	it('(airline) cannot register an Airline using registerAirline() if it is not funded', async () => {
+
+	it('(airlines) cannot register an Airline using registerAirline() if it is not funded', async () => {
 		
 		// ARRANGE
-		let newAirline = accounts[2];
+		const newAirline = accounts[1];
 		// ACT
 		try {
-			await config.flightSuretyApp.registerAirline(newAirline, "AirlineX");
+			await config.flightSuretyApp.registerAirline(newAirline, { from: accounts[0]});
 		}
 		catch(e) {
-			console.log(e);
+			//console.log(e);
 		}
-		let result = await config.flightSuretyApp.isRegisteredAirline(newAirline); 
+		const result = await config.flightSuretyApp.isAirlineRegistered.call(newAirline); 
 
 		// ASSERT
 		assert.equal(result, false, "Airline should not be able to register another airline if it hasn't provided funding");
 
 	});
 
-	it('(airline) can register an Airline using registerAirline() if it is funded', async () => {
+	it('(airlines) can register an Airline using registerAirline() if it is funded', async () => {
 		
 		// ARRANGE
-		let newAirline = accounts[3];
-
+		const newAirline = accounts[1];
 		
 		// ACT
 		try {
-			//await config.flightSuretyData.fund(accounts[0], {value: web3.utils.toWei('10', 'ether')});
-			await config.flightSuretyApp.registerAirline(newAirline, "AirlineY");
+			await config.flightSuretyApp.submitFunding({from: accounts[0], value: web3.utils.toWei('10', 'ether')});
+			await config.flightSuretyApp.registerAirline(newAirline);
 		}
 		catch(e) {
 			console.log(e);
 		}
-		let result = await config.flightSuretyData.isRegisteredAirline.call(newAirline); 
+		const result = await config.flightSuretyApp.isAirlineRegistered.call(newAirline); 
 
 		// ASSERT
 		assert.equal(result, true, "Airline should be able to register another airline if it has provided funding");
 
 	});
 
-	it('(airline) Can register flight', async () => {
+	it('(airlines) cannot register 5th airline without multiparty consensus', async () => {
+		
 		// ARRANGE
+		const newAirline2 = accounts[2];
+		const newAirline3 = accounts[3];
+		const newAirline = accounts[4];
 		
 		// ACT
 		try {
-			await config.flightSuretyApp.registerFlight(flightName, timestamp);
+			await config.flightSuretyApp.submitFunding({from: accounts[1], value: web3.utils.toWei('10', 'ether')});
+			await config.flightSuretyApp.registerAirline(newAirline2);
+			await config.flightSuretyApp.submitFunding({from: accounts[2], value: web3.utils.toWei('10', 'ether')});
+			await config.flightSuretyApp.registerAirline(newAirline3);
+			await config.flightSuretyApp.submitFunding({from: accounts[3], value: web3.utils.toWei('10', 'ether')});
+			
+			await config.flightSuretyApp.registerAirline(newAirline);
 		}
 		catch(e) {
 			console.log(e);
 		}
-		let result = await config.flightSuretyApp.isRegisteredFlight(flightName, timestamp);
+		const result = await config.flightSuretyApp.isAirlineRegistered.call(newAirline); 
 
 		// ASSERT
-		assert.equal(result, true, "Airline should be able to register another airline if it has provided funding");
+		assert.equal(result, false, "Airline should not be able to register without multiparty consensus");
 
+	});
+
+	it('(airlines) 5th airline can be registered when there is multiparty consensus', async () => {
+		
+		// ARRANGE
+		const newAirline = accounts[4];
+		
+		// ACT
+		try {
+			await config.flightSuretyApp.registerAirline(newAirline, { from: accounts[1] });
+		}
+		catch(e) {
+			console.log(e);
+		}
+		const result = await config.flightSuretyApp.isAirlineRegistered.call(newAirline);
+
+		// ASSERT
+		assert.equal(result, true, "Airline should be able to register with multiparty consensus");
+
+	});
+
+	it('(airlines) can register flight', async () => {
+		// ARRANGE
+		const airline = accounts[1];
+
+		// ACT
+		try {
+			await config.flightSuretyApp.registerFlight(airline, flight1, timestamp);
+		}
+		catch(e) {
+			console.log(e);
+		}
+
+		const result = await config.flightSuretyApp.isFlightRegistered.call(airline, flight1, timestamp);
+		// ASSERT
+		assert.equal(result, true, "Flight should be registered");
 	});
 
 	// Passengers may pay up to 1 ether for purchasing flight insurance.
 	it('(passenger) can buy insurance for a flight', async () => {
 		// ARRANGE
-		let passenger = accounts[9];
-		let flight = 'ND-123';
-		let amount = web3.utils.toWei('1', 'ether');
-		let timestamp = Math.floor(Date.now() / 1000);
+		const passenger = accounts[9];
+		const airline = accounts[1];
+
+		const amount = web3.utils.toWei('1', 'ether');
 
 		// ACT
 		try {
-			await config.flightSuretyApp.buyInsurance(config.firstAirline, flight, timestamp, {from: passenger, value: amount});
+			await config.flightSuretyApp.buyInsurance(airline, flight1, timestamp, {from: passenger, value: amount});
 		}
 		catch(e) {
 			console.log(e);
 		}
-		let result = await config.flightSuretyApp.isPurchased(config.firstAirline, config.firstFlight, passenger);
+		const result = await config.flightSuretyApp.getInsuranceValue.call(passenger);
+		const balance = await config.flightSuretyApp.getBalance.call(passenger);
+		// console.log(balance.toString());
+		
 		// ASSERT
-		assert.equal(result, true, "Passenger should be able to buy insurance for a flight");
-	
+		assert.equal(result, web3.utils.toWei('1', 'ether'), "Passenger should be able to buy insurance for a flight");
 	});
 
-	// // If flight is delayed due to airline fault, passenger receives credit of 1.5X the amount they paid
-	// it('(passenger) can claim insurance for a delayed flight', async () => {
-	// 	// ARRANGE
-	// 	let passenger = accounts[9];
-				
-	// 	// ACT
-	// 	try	{
-	// 		await config.flightSuretyApp.claim(config.firstAirline, config.firstFlight, {from: passenger});
-	// 	}
-	// 	catch(e) {
-	// 		console.log(e);
-	// 	}
-	// 	let result = await config.flightSuretyApp.checkBalance(config.firstAirline, config.firstFlight, passenger);
+	it('(passenger) recieves insurance payout credit', async () => {
+		// ARRANGE
+		const passenger = accounts[9];
+		const airline = accounts[1];
 
-	// 	// ASSERT
-	// 	assert.equal(result, true, "Passenger should be able to claim insurance for a delayed flight");
-	
-	// });
+		const payoutAmount = web3.utils.toWei('1.5', 'ether');
 
-	// Passenger can withdraw any funds owed to them as a result of receiving credit for insurance payout
+		// Oracles
+		const TEST_ORACLES_COUNT = 25;
+		const STATUS_CODE_LATE_AIRLINE = 20;
+		const fee = await config.flightSuretyApp.REGISTRATION_FEE.call();
+		// Register oracles
+		for(let a=15; a<15+TEST_ORACLES_COUNT; a++) {      
+			await config.flightSuretyApp.registerOracle({ from: accounts[a], value: fee });
+			let result = await config.flightSuretyApp.getMyIndexes.call({from: accounts[a]});
+			//console.log(`Oracle Registered: ${result[0]}, ${result[1]}, ${result[2]}`);
+		}
+
+		// ACT
+		// Submit a request for oracles to get status information for flight1
+		await config.flightSuretyApp.fetchFlightStatus(airline, flight1, timestamp);
+
+		for(let a=15; a<15+TEST_ORACLES_COUNT; a++) {
+			// Get oracle information
+			const oracleIndexes = await config.flightSuretyApp.getMyIndexes.call({ from: accounts[a]});
+			for(let idx=0;idx<3;idx++) {
+				try {
+					// Submit a response...it will only be accepted if there is an Index match
+					await config.flightSuretyApp.submitOracleResponse(oracleIndexes[idx], airline, flight1, timestamp, STATUS_CODE_LATE_AIRLINE, { from: accounts[a] });
+				}
+				catch(e) {
+					// Enable this when debugging
+					// console.log('\nError', idx, oracleIndexes[idx].toNumber(), flight, timestamp);
+				}
+	  		}
+		}
+
+		const balance = await config.flightSuretyApp.getBalance.call(passenger);
+
+		// ASSERT
+		assert.equal(balance.toString(), payoutAmount.toString(), "Passenger shlould be credited with insurance payout");
+	});
+
+
+	// Passenger can withdraw
 	it('(passenger) can withdraw insurance funds', async () => {
 		// ARRANGE
-		let passenger = accounts[9];
-		let balanceBefore = await web3.eth.getBalance(passenger);
+		const passenger = accounts[9];
+		const withdrawAmount = web3.utils.toWei('1', 'ether');
+		let tx;
+		
+		const balanceBefore = new BigNumber(await web3.eth.getBalance(passenger));
+		// console.log(balanceBefore);
 		// ACT
 		try {
-			await config.flightSuretyApp.withdraw({from: passenger});
+			tx = await config.flightSuretyApp.withdraw(withdrawAmount, {from: passenger});
+			// console.log(tx);
 		}
 		catch(e) {
 			console.log(e);
 		}
-		let balanceAfter = await web3.eth.getBalance(passenger);
-		let result = balanceAfter.sub(balanceBefore);
+		const gasUsed = tx.receipt.gasUsed;
+		const gasPrice = (await web3.eth.getTransaction(tx.tx)).gasPrice;
+		const gasFees = BigNumber(gasPrice).times(gasUsed);
+
+		const balanceAfter = new BigNumber(await web3.eth.getBalance(passenger));
+		const expectedBalance = balanceBefore.plus(withdrawAmount).minus(gasFees);
+		// console.log(balanceAfter);
+		// console.log(expectedBalance);
+		// console.log(gasFees);
+
 		// ASSERT
-		assert.equal(result, amount, "Passenger should be able to withdraw insurance funds");
-	
+		assert.equal(balanceAfter.toString(), expectedBalance.toString(), "Passenger should be able to withdraw insurance funds");
 	});
 });
